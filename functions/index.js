@@ -38,37 +38,56 @@ exports.addRequest = functions.https.onCall((data, context) => {
 });
 
 // upvote callable function
-exports.upvote = functions.https.onCall((data, context) => {
-  // check auth state
-  if (!context.auth) {
-    throw new functions.https.HttpsError(
+exports.upvote = functions.https.onCall(async (data, context) => {
+    // check auth state
+    if (!context.auth) {
+      throw new functions.https.HttpsError(
         "unauthenticated",
         "only aunthenticated users can upvote"
-    );
-  }
+      );
+    }
 
-  // get refs for user doc & request doc
-  const user = admin.firestore().collection("users").doc(context.auth.uid);
-  const request = admin.firestore().collection("requests").doc(data.id);
+    // get refs for user doc & request doc
+    const user = admin.firestore().collection("users").doc(context.auth.uid);
+    const request = admin.firestore().collection("requests").doc(data.id);
 
-  return user.get().then((doc) => {
+    const doc = await user.get();
+
     // check user hasn't already upvoted request
     if (doc.data().upvotedOn.includes(data.id)) {
       throw new functions.https.HttpsError(
-          "failed-precondition",
-          "You can only upvote once"
+        "failed-precondition",
+        "You can only upvote once"
       );
     }
 
     // Update user array
-    return user.update({
+    await user.update({
       upvotedOn: [...doc.data().upvotedOn, data.id],
-    })
-        .then(() => {
-          // update votes on the request
-          return request.update({
-            upvotes: admin.firestore.FieldValue.increment(1),
-          });
-        });
+    });
+
+    // update votes on the request
+    return request.update({
+      upvotes: admin.firestore.FieldValue.increment(1),
+    });
   });
-});
+
+  exports.logActivities = functions.firestore.document('/{collection}/{id}')
+    .onCreate((snap, context) => {
+      console.log(snap.data());
+
+      const collection = context.params.collection;
+      const id = context.params.id;
+
+      const activities = admin.firestore().collection('activities');
+
+      if(collection === 'requests') {
+        return activities.add({ text: 'a new tutorial request was added'});
+      }
+
+      if(collection === 'users') {
+        return activities.add({ text: 'a new user signed up'});
+      }
+
+      return null;
+    })
